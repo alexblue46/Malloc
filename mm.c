@@ -411,18 +411,3 @@ printblock(void *bp)
 	    hsize, (halloc ? 'a' : 'f'), 
 	    fsize, (falloc ? 'a' : 'f'));
 }
-
-/*
- * The last lines of this file configure the behavior of the "Tab" key in
- * emacs.  Emacs has a rudimentary understanding of C syntax and style.  In
- * particular, depressing the "Tab" key once at the start of a new line will
- * insert as many tabs and/or spaces as are needed for proper indentation.
- */
-
-/* Local Variables: */
-/* mode: c */
-/* c-default-style: "bsd" */
-/* c-basic-offset: 8 */
-/* c-continued-statement-offset: 4 */
-/* indent-tabs-mode: t */
-/* End: */
