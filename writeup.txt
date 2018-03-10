@@ -1,22 +1,17 @@
-<insert name(s)>
-COMP 321 Project 5: Malloc Dynamic Memory Allocator
-<insert date turned in>
+COMP 321 Project 5: Malloc
+<Insert your name(s) and NetID(s).>
 
-DESCRIPTION
+---(Do not write lines of text that exceed the width of this line.)------------
 
-<insert a brief description of your solution (i.e., a short synopsis
-of what the application does from the perspective of someone who
-would use it).>
+DESIGN DESCRIPTION
 
-DESIGN
-
-<insert a detailed description of any appropriate design decisions you
-made, such as data structures, algorithms, etc.>
+<Insert an English description of your submission's design.  Do not submit
+pseudo-code.  Describe any design decisions that you made, such as the data
+structures and algorithms that you used.> 
 
 TESTING STRATEGY
 
-<insert a detailed description of your testing strategy: at a minimum
-you should explain how you tested your code and why that testing was
-sufficient.>
-
-
+<Insert a detailed description of your testing strategy: At a minimum,
+you should explain how you tested your code, how you selected your inputs,
+what those inputs were, and why you believe those inputs were sufficient
+to test your code.>
