@@ -1,7 +1,7 @@
 /* 
  * Simple, 32-bit and 64-bit clean allocator based on an implicit free list,
  * first fit placement, and boundary tag coalescing, as described in the
- * CS:APP2e text.  Blocks are aligned to double-word boundaries.  This
+ * CS:APP3e text.  Blocks are aligned to double-word boundaries.  This
  * yields 8-byte aligned blocks on a 32-bit processor, and 16-byte aligned
  * blocks on a 64-bit processor.  However, 16-byte alignment is stricter
  * than necessary; the assignment only requires 8-byte alignment.  The
@@ -30,11 +30,11 @@ team_t team = {
 	"",
 	/* First member's full name */
 	"",
-	/* First member's email address */
+	/* First member's NetID */
 	"",
 	/* Second member's full name (leave blank if none) */
 	"",
-	/* Second member's email address (leave blank if none) */
+	/* Second member's NetID (leave blank if none) */
 	""
 };
 

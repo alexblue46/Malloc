@@ -12,11 +12,11 @@ void	*mm_realloc(void *ptr, size_t size);
  * names and login IDs in a struct of this type in their mm.c file.
  */
 typedef struct {
-	char	*teamname;	/* ID1+ID2 or ID1 */
+	char	*teamname;	/* Team name. */
 	char	*name1;		/* Full name of first member. */
-	char	*id1;		/* Login ID of first member. */
+	char	*id1;		/* NetID of first member. */
 	char	*name2;		/* Full name of second member (if any). */
-	char	*id2;		/* Login ID of second member. */
+	char	*id2;		/* NetID of second member. */
 } team_t;
 
 extern team_t team;
