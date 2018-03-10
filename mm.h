@@ -1,5 +1,4 @@
-/*- -*- mode: c; c-basic-offset: 4; -*-
- *
+/*
  * The public interface to the students' memory allocator.
  */
 
