@@ -42,7 +42,7 @@ team_t team = {
 #define WSIZE      sizeof(void *) /* Word and header/footer size (bytes) */
 #define DSIZE      (2 * WSIZE)    /* Doubleword size (bytes) */
 #define CHUNKSIZE  (1 << 12)      /* Extend heap by this amount (bytes) */
-#define NUM_SEG (15)
+
 #define MAX(x, y)  ((x) > (y) ? (x) : (y))  
 
 /* Pack a size and allocated bit into a word. */
@@ -54,11 +54,10 @@ team_t team = {
 
 /* Read the size and allocated fields from address p. */
 #define GET_SIZE(p)   (GET(p) & ~(DSIZE - 1))
-#define GET_NEXT_FREE(p) (GET(p + WSIZE))
 #define GET_ALLOC(p)  (GET(p) & 0x1)
 
 /* Given block ptr bp, compute address of its header and footer. */
-#define HDRP(bp)  ((char *)(bp) - 2 * WSIZE)
+#define HDRP(bp)  ((char *)(bp) - WSIZE)
 #define FTRP(bp)  ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
 
 /* Given block ptr bp, compute address of next and previous blocks. */
@@ -90,78 +89,20 @@ static void printblock(void *bp);
 int
 mm_init(void) 
 {
-	
+
 	/* Create the initial empty heap. */
-	if ((heap_listp = mem_sbrk((4 + NUM_SEG) * WSIZE)) == (void *)-1)
+	if ((heap_listp = mem_sbrk(4 * WSIZE)) == (void *)-1)
 		return (-1);
 	PUT(heap_listp, 0);                            /* Alignment padding */
 	PUT(heap_listp + (1 * WSIZE), PACK(DSIZE, 1)); /* Prologue header */ 
-	int i;
-	for (i = 0; i < NUM_SEG; i++) {
-		PUT(heap_listp + ((2 + i) * WSIZE), 0); /* Segment pointer */ 
-	}
-	PUT(heap_listp + ((2 + NUM_SEG) * WSIZE), PACK(DSIZE, 1)); /* Prologue footer */ 
-	PUT(heap_listp + ((3 + NUM_SEG) * WSIZE), PACK(0, 1));     /* Epilogue header */
-	heap_listp += ((2 + NUM_SEG) * WSIZE);
+	PUT(heap_listp + (2 * WSIZE), PACK(DSIZE, 1)); /* Prologue footer */ 
+	PUT(heap_listp + (3 * WSIZE), PACK(0, 1));     /* Epilogue header */
+	heap_listp += (2 * WSIZE);
 
 	/* Extend the empty heap with a free block of CHUNKSIZE bytes. */
 	if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
 		return (-1);
-
 	return (0);
-}
-
-/*
- * Given a size, returns a pointer to the segregation list for that size
- */
-void *
-get_segregation(size_t size)
-{
-        // Size classes: 1-2, 3, 4, 5-8, 9-16, 17-32, 33-64, 65-128, 129-256, 
-        // 257-512, 513-1024, 1025-2048, 2049-4096, 4097-8192, 8193-inf
-	void* p = heap_listp - (NUM_SEG * WSIZE);
-	if (size <= 0) {
-		return NULL;
-	} else if (size <= 2) {
-	} else if (size <= 3) {
-		p += WSIZE;
-	} else if (size <= 4) {
-		p += 2 * WSIZE;
-	}  else if (size <= 8) {
-		p += 3 * WSIZE;
-	}  else if (size <= 16) {
-		p += 4 * WSIZE;
-	}  else if (size <= 32) {
-		p += 5 * WSIZE;
-	}  else if (size <= 64) {
-		p += 6 * WSIZE;
-	}  else if (size <= 128) {
-		p += 7 * WSIZE;
-	}  else if (size <= 256) {
-		p += 8 * WSIZE;
-	}  else if (size <= 512) {
-		p += 9 * WSIZE;
-	}  else if (size <= 1024) {
-		p += 10 * WSIZE;
-	}  else if (size <= 2048) {
-		p += 11 * WSIZE;
-	}  else if (size <= 4096) {
-		p += 12 * WSIZE;
-	}  else if (size <= 8192) {
-		p += 13 * WSIZE;
-	} else {
-		p += 14 * WSIZE;
-	}
-	return p;
-}
-/*
- * Adds this block to the segregation lists
- */
-void segregate_block(void *bp)
-{
-	void *seg_ptr = get_segregation(GET_SIZE(bp));
-	GET_NEXT_FREE(HDRP(bp)) = (uintptr_t)seg_ptr;
-	seg_ptr = bp; 
 }
 
 /* 
@@ -379,14 +320,12 @@ place(void *bp, size_t asize)
 
 	if ((csize - asize) >= (2 * DSIZE)) { 
 		PUT(HDRP(bp), PACK(asize, 1));
-		PUT(GET_NEXT_FREE(HDRP(bp)), 0);
 		PUT(FTRP(bp), PACK(asize, 1));
 		bp = NEXT_BLKP(bp);
 		PUT(HDRP(bp), PACK(csize - asize, 0));
 		PUT(FTRP(bp), PACK(csize - asize, 0));
 	} else {
 		PUT(HDRP(bp), PACK(csize, 1));
-		PUT(GET_NEXT_FREE(HDRP(bp)), 0);
 		PUT(FTRP(bp), PACK(csize, 1));
 	}
 }

@@ -1,0 +1,43 @@
+amptjb-bal.rep:
+5694 commands
+Allocates a lot of blocks of various sizes, a lot of allocations of size 4072,
+frees in various places
+
+binary2-bal.rep:
+24000 cmds
+Alternates allocating 16 and 112 blocks, frees them, then allocates 128 blocks.
+
+binary-bal.rep:
+12000 cmds
+Alternates 64 and 446 allocations, frees them, then allocates 512 blocks.
+
+cccp-bal.rep:
+5848 cmds
+Various size allocations, a lot of 4072, but a lot of small ones too.
+
+coalescing-bal.rep:
+Repeats this: Allocate 4095 twice, free them, allocate 8190, free it.
+
+cp-decl-bal.rep:
+6648 cmds
+Similar to cccp-bal
+
+expr-bal.rep:
+Same
+
+random2-bal.rep:
+4800 cmds
+Allocations of random sizes, frees randomly interspersed.
+
+random-bal.rep:
+4800 cmds
+Same
+
+realloc2-bal.rep:
+14401 cmds
+Allocates #0 big, #1 small, then reallocates #0 larger. Then allocates #2 small,
+frees #1, then reallocates #0. Continues.
+
+realloc-bal.rep:
+14401 cmds
+Same thing with differnt size.
