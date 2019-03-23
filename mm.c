@@ -59,12 +59,12 @@ team_t team = {
 
 /* Given block ptr bp, compute address of its header and footer. */
 #define HDRP(bp)  ((char *)(bp) - DSIZE)
-#define FTRP(bp)  ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
+#define FTRP(bp)  ((char *)(bp) + GET_SIZE(HDRP(bp)) - 2*DSIZE)
 #define HDRLINK(bp)  ((char *)(bp) - WSIZE)
 
 /* Given block ptr bp, compute address of next and previous blocks. */
 #define NEXT_BLKP(bp)  ((char *)(bp) + GET_SIZE(((char *)(bp) - DSIZE)))
-#define PREV_BLKP(bp)  ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE - WSIZE)))
+#define PREV_BLKP(bp)  ((char *)(bp) - GET_SIZE(((char *)(bp) - 2*DSIZE)))
 
 /* Global variables: */
 static char *heap_listp; /* Pointer to first block */  
@@ -93,26 +93,27 @@ mm_init(void)
 {
 	printf("mm_init called\n");
 	/* Create the initial empty heap. */
-	if ((heap_listp = mem_sbrk((5 + NUM_SEG) * WSIZE)) == (void *)-1)
+	if ((heap_listp = mem_sbrk((6 + NUM_SEG) * WSIZE)) == (void *)-1)
 		return (-1);
-	PUT(heap_listp, 0);                            /* Alignment padding */
-	PUT(heap_listp + (1 * WSIZE), PACK(NUM_SEG*WSIZE + DSIZE, 1)); /* Prologue header */ 
-	PUT(heap_listp + (2 * WSIZE), 0); 
+	PUT(heap_listp, PACK(NUM_SEG*WSIZE + 2*DSIZE, 1)); /* Prologue header */ 
+	PUT(heap_listp + (1 * WSIZE), 0); 
 	int i;
 	for (i = 0; i < NUM_SEG; i++) {
-		PUT(heap_listp + ((3 + i) * WSIZE), 0); /* Segment pointer */ 
+		PUT(heap_listp + ((2 + i) * WSIZE), 0); /* Segment pointer */ 
 	}
-	PUT(heap_listp + ((3 + NUM_SEG) * WSIZE), PACK(NUM_SEG*WSIZE + DSIZE, 1)); /* Prologue footer */ 
+	PUT(heap_listp + ((2 + NUM_SEG) * WSIZE), PACK(NUM_SEG*WSIZE + 2*DSIZE, 1)); /* Prologue footer */ 
+	PUT(heap_listp + ((3 + NUM_SEG) * WSIZE), 0);
 	PUT(heap_listp + ((4 + NUM_SEG) * WSIZE), PACK(0, 1));     /* Epilogue header */
-	heap_listp += (3 * WSIZE);
+	PUT(heap_listp + ((5 + NUM_SEG) * WSIZE), PACK(0, 1));     /* Epilogue header */
+	heap_listp += (2 * WSIZE);
+
 	checkheap(true);
 
 	printf("Extending heap in mm_init\n");
 	/* Extend the empty heap with a free block of CHUNKSIZE bytes. */
 	if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
 		return (-1);
-	printf("Checking heap in mm_init\n");
-	//checkheap(true);
+	
 	return (0);
 }
 
@@ -345,7 +346,12 @@ extend_heap(size_t words)
 	PUT(HDRP(bp), PACK(size, 0));         /* Free block header */
 	PUT(HDRLINK(bp), 0);         /* Free block linked ptr */
 	PUT(FTRP(bp), PACK(size, 0));         /* Free block footer */
+	PUT(FTRP(bp) + WSIZE, PACK(size, 0));         /* Free block footer */
 	PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* New epilogue header */
+	PUT(HDRP(NEXT_BLKP(bp)) + WSIZE, PACK(0, 1)); /* New epilogue header */
+
+	printf("Checking heap in extend heap\n");
+	checkheap(true);
 
 	/* Coalesce if the previous block was free. */
 	return (coalesce(bp));
@@ -438,12 +444,11 @@ checkheap(bool verbose)
 	if (verbose)
 		printf("Heap (%p):\n", heap_listp);
 
-	if (GET_SIZE(HDRP(heap_listp)) != DSIZE + WSIZE*NUM_SEG)
+	if (GET_SIZE(HDRP(heap_listp)) != WSIZE*NUM_SEG + 2*DSIZE)
 		printf("Bad prologue header: HDRP size was %d\n", (int)GET_SIZE(HDRP(heap_listp)));
 	if (!GET_ALLOC(HDRP(heap_listp)))
 		printf("Bad prologue header: Was unallocated\n");
 	checkblock(heap_listp);
-
 	for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
 		if (verbose)
 			printblock(bp);
@@ -469,7 +474,7 @@ printblock(void *bp)
 	size_t hsize, fsize;
 	bool halloc, falloc;
 
-	checkheap(false);
+	//checkheap(false);
 	hsize = GET_SIZE(HDRP(bp));
 	halloc = GET_ALLOC(HDRP(bp));  
 	fsize = GET_SIZE(FTRP(bp));
