@@ -42,7 +42,7 @@ team_t team = {
 #define WSIZE      sizeof(void *) /* Word and header/footer size (bytes) */
 #define DSIZE      (2 * WSIZE)    /* Doubleword size (bytes) */
 #define CHUNKSIZE  (1 << 12)      /* Extend heap by this amount (bytes) */
-#define NUM_SEG (15)
+#define NUM_SEG (16)
 #define MAX(x, y)  ((x) > (y) ? (x) : (y))  
 
 /* Pack a size and allocated bit into a word. */
@@ -58,12 +58,13 @@ team_t team = {
 #define GET_ALLOC(p)  (GET(p) & 0x1)
 
 /* Given block ptr bp, compute address of its header and footer. */
-#define HDRP(bp)  ((char *)(bp) - 2 * WSIZE)
+#define HDRP(bp)  ((char *)(bp) - DSIZE)
 #define FTRP(bp)  ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
+#define HDRLINK(bp)  ((char *)(bp) - WSIZE)
 
 /* Given block ptr bp, compute address of next and previous blocks. */
-#define NEXT_BLKP(bp)  ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
-#define PREV_BLKP(bp)  ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
+#define NEXT_BLKP(bp)  ((char *)(bp) + GET_SIZE(((char *)(bp) - DSIZE)))
+#define PREV_BLKP(bp)  ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE - WSIZE)))
 
 /* Global variables: */
 static char *heap_listp; /* Pointer to first block */  
@@ -90,24 +91,28 @@ static void printblock(void *bp);
 int
 mm_init(void) 
 {
-	
+	printf("mm_init called\n");
 	/* Create the initial empty heap. */
-	if ((heap_listp = mem_sbrk((4 + NUM_SEG) * WSIZE)) == (void *)-1)
+	if ((heap_listp = mem_sbrk((5 + NUM_SEG) * WSIZE)) == (void *)-1)
 		return (-1);
 	PUT(heap_listp, 0);                            /* Alignment padding */
-	PUT(heap_listp + (1 * WSIZE), PACK(DSIZE, 1)); /* Prologue header */ 
+	PUT(heap_listp + (1 * WSIZE), PACK(NUM_SEG*WSIZE + DSIZE, 1)); /* Prologue header */ 
+	PUT(heap_listp + (2 * WSIZE), 0); 
 	int i;
 	for (i = 0; i < NUM_SEG; i++) {
-		PUT(heap_listp + ((2 + i) * WSIZE), 0); /* Segment pointer */ 
+		PUT(heap_listp + ((3 + i) * WSIZE), 0); /* Segment pointer */ 
 	}
-	PUT(heap_listp + ((2 + NUM_SEG) * WSIZE), PACK(DSIZE, 1)); /* Prologue footer */ 
-	PUT(heap_listp + ((3 + NUM_SEG) * WSIZE), PACK(0, 1));     /* Epilogue header */
-	heap_listp += ((2 + NUM_SEG) * WSIZE);
+	PUT(heap_listp + ((3 + NUM_SEG) * WSIZE), PACK(NUM_SEG*WSIZE + DSIZE, 1)); /* Prologue footer */ 
+	PUT(heap_listp + ((4 + NUM_SEG) * WSIZE), PACK(0, 1));     /* Epilogue header */
+	heap_listp += (3 * WSIZE);
+	checkheap(true);
 
+	printf("Extending heap in mm_init\n");
 	/* Extend the empty heap with a free block of CHUNKSIZE bytes. */
 	if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
 		return (-1);
-
+	printf("Checking heap in mm_init\n");
+	//checkheap(true);
 	return (0);
 }
 
@@ -149,8 +154,10 @@ get_segregation(size_t size)
 		p += 12 * WSIZE;
 	}  else if (size <= 8192) {
 		p += 13 * WSIZE;
-	} else {
+	} else if (size <= 16384){
 		p += 14 * WSIZE;
+	} else {
+		p += 15 * WSIZE;
 	}
 	return p;
 }
@@ -293,6 +300,8 @@ coalesce(void *bp)
 	bool prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
 	bool next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
 
+	printf("coalescing %d %d %d\n",(int)size, (int)prev_alloc, (int)next_alloc);
+
 	if (prev_alloc && next_alloc) {                 /* Case 1 */
 		return (bp);
 	} else if (prev_alloc && !next_alloc) {         /* Case 2 */
@@ -334,6 +343,7 @@ extend_heap(size_t words)
 
 	/* Initialize free block header/footer and the epilogue header. */
 	PUT(HDRP(bp), PACK(size, 0));         /* Free block header */
+	PUT(HDRLINK(bp), 0);         /* Free block linked ptr */
 	PUT(FTRP(bp), PACK(size, 0));         /* Free block footer */
 	PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* New epilogue header */
 
@@ -406,10 +416,11 @@ static void
 checkblock(void *bp) 
 {
 
-	if ((uintptr_t)bp % DSIZE)
-		printf("Error: %p is not doubleword aligned\n", bp);
+	if ((uintptr_t)bp % WSIZE)
+		printf("Error: %p is not word aligned\n", bp);
 	if (GET(HDRP(bp)) != GET(FTRP(bp)))
-		printf("Error: header does not match footer\n");
+		printf("Error: header does not match footer, was %d != %d\n",
+		       (int)GET(HDRP(bp)), (int)GET(FTRP(bp)));
 }
 
 /* 
@@ -427,9 +438,10 @@ checkheap(bool verbose)
 	if (verbose)
 		printf("Heap (%p):\n", heap_listp);
 
-	if (GET_SIZE(HDRP(heap_listp)) != DSIZE ||
-	    !GET_ALLOC(HDRP(heap_listp)))
-		printf("Bad prologue header\n");
+	if (GET_SIZE(HDRP(heap_listp)) != DSIZE + WSIZE*NUM_SEG)
+		printf("Bad prologue header: HDRP size was %d\n", (int)GET_SIZE(HDRP(heap_listp)));
+	if (!GET_ALLOC(HDRP(heap_listp)))
+		printf("Bad prologue header: Was unallocated\n");
 	checkblock(heap_listp);
 
 	for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
@@ -441,7 +453,7 @@ checkheap(bool verbose)
 	if (verbose)
 		printblock(bp);
 	if (GET_SIZE(HDRP(bp)) != 0 || !GET_ALLOC(HDRP(bp)))
-		printf("Bad epilogue header\n");
+		printf("Bad epilogue header, was %d\n", (int)GET(HDRP(bp)));
 }
 
 /*
