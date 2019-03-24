@@ -55,6 +55,7 @@ team_t team = {
 /* Read the size and allocated fields from address p. */
 #define GET_SIZE(p)   (GET(p) & ~(DSIZE - 1))
 #define GET_NEXT_FREE(p) (GET(p + WSIZE))
+#define PUT_NEXT_FREE(p, val) (PUT(p + WSIZE, val))
 #define GET_ALLOC(p)  (GET(p) & 0x1)
 
 /* Given block ptr bp, compute address of its header and footer. */
@@ -107,13 +108,14 @@ mm_init(void)
 	PUT(heap_listp + ((5 + NUM_SEG) * WSIZE), PACK(0, 1));     /* Epilogue header */
 	heap_listp += (2 * WSIZE);
 
-	checkheap(true);
 
 	printf("Extending heap in mm_init\n");
 	/* Extend the empty heap with a free block of CHUNKSIZE bytes. */
 	if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
 		return (-1);
 	
+	checkheap(true);
+
 	return (0);
 }
 
@@ -125,7 +127,7 @@ get_segregation(size_t size)
 {
         // Size classes: 1-2, 3, 4, 5-8, 9-16, 17-32, 33-64, 65-128, 129-256, 
         // 257-512, 513-1024, 1025-2048, 2049-4096, 4097-8192, 8193-inf
-	void* p = heap_listp - (NUM_SEG * WSIZE);
+	void* p = heap_listp;
 	if (size <= 0) {
 		return NULL;
 	} else if (size <= 2) {
@@ -165,11 +167,11 @@ get_segregation(size_t size)
 /*
  * Adds this block to the segregation lists
  */
-void segregate_block(void *bp)
+void seg_block(void *bp)
 {
-	void *seg_ptr = get_segregation(GET_SIZE(bp));
-	GET_NEXT_FREE(HDRP(bp)) = (uintptr_t)seg_ptr;
-	seg_ptr = bp; 
+	uintptr_t seg_ptr = (uintptr_t) get_segregation(GET_SIZE(HDRP(bp)));
+	PUT_NEXT_FREE(HDRP(bp), GET(seg_ptr));
+	PUT(seg_ptr, (uintptr_t)bp);
 }
 
 /* 
@@ -184,6 +186,7 @@ void segregate_block(void *bp)
 void *
 mm_malloc(size_t size) 
 {
+	printf("mm_malloc called\n");
 	size_t asize;      /* Adjusted block size */
 	size_t extendsize; /* Amount to extend heap if no fit */
 	void *bp;
@@ -222,6 +225,7 @@ mm_malloc(size_t size)
 void
 mm_free(void *bp)
 {
+	printf("mm_free called\n");
 	size_t size;
 
 	/* Ignore spurious requests. */
@@ -350,6 +354,8 @@ extend_heap(size_t words)
 	PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* New epilogue header */
 	PUT(HDRP(NEXT_BLKP(bp)) + WSIZE, PACK(0, 1)); /* New epilogue header */
 
+	seg_block(bp);
+
 	printf("Checking heap in extend heap\n");
 	checkheap(true);
 
@@ -421,7 +427,20 @@ place(void *bp, size_t asize)
 static void
 checkblock(void *bp) 
 {
+	if (!GET_ALLOC(HDRP(bp))) {
+		int found = 0;
+		void* p = (void*)GET(get_segregation(GET_SIZE(HDRP(bp))));
+		while (p != NULL) {
+			if (p == bp) {
+				found = 1;
+				break;
+			}
+			p = (void*)GET_NEXT_FREE(p);
+		}
+		if (!found)
+			printf("Error: Free block %p is not in the segregation list\n", bp);
 
+	}
 	if ((uintptr_t)bp % WSIZE)
 		printf("Error: %p is not word aligned\n", bp);
 	if (GET(HDRP(bp)) != GET(FTRP(bp)))
@@ -459,6 +478,18 @@ checkheap(bool verbose)
 		printblock(bp);
 	if (GET_SIZE(HDRP(bp)) != 0 || !GET_ALLOC(HDRP(bp)))
 		printf("Bad epilogue header, was %d\n", (int)GET(HDRP(bp)));
+	int i;
+	for (i = 0; i < NUM_SEG; i++) {
+		void* p = (void*) GET(heap_listp + i * WSIZE);
+		while (p != NULL) {
+			size_t size = GET_SIZE(HDRP(p));
+			if (get_segregation(size) != heap_listp + i * WSIZE)
+				printf("Block %p was in free list %d but was size %d", p, i, (int)size);
+			if (GET_ALLOC(HDRP(p)))
+				printf("Block %p was in free list but was not free.\n", p);
+			p = (void*) GET_NEXT_FREE(p);
+		}
+	}
 }
 
 /*
