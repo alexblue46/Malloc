@@ -186,7 +186,7 @@ void seg_block(void *bp)
 void *
 mm_malloc(size_t size) 
 {
-	printf("mm_malloc called\n");
+	printf("mm_malloc(%d)\n", (int)size);
 	size_t asize;      /* Adjusted block size */
 	size_t extendsize; /* Amount to extend heap if no fit */
 	void *bp;
@@ -196,10 +196,12 @@ mm_malloc(size_t size)
 		return (NULL);
 
 	/* Adjust block size to include overhead and alignment reqs. */
-	if (size <= DSIZE)
-		asize = 2 * DSIZE;
+	if (size <= WSIZE)
+		asize = 2 * DSIZE + WSIZE;
 	else
-		asize = DSIZE * ((size + DSIZE + (DSIZE - 1)) / DSIZE);
+		asize = WSIZE * ((size + 2*DSIZE + (WSIZE - 1)) / WSIZE);
+
+	printf("Asize: %d\n", (int)asize);
 
 	/* Search the free list for a fit. */
 	if ((bp = find_fit(asize)) != NULL) {
