@@ -84,8 +84,8 @@ static bool checkblock(void *bp);
 static void checkheap(bool verbose);
 static void printblock(void *bp); 
 
-static int should_check = 0;
-static int check_verbose = 0;
+const int should_check = 0;
+const int check_verbose = 0;
 
 /* 
  * Requires:
@@ -103,8 +103,9 @@ mm_init(void)
 		return (-1);
 	PUT(heap_listp, PACK(NUM_SEG*WSIZE + 2*DSIZE, 1)); /* Prologue header */ 
 	PUT(heap_listp + (1 * WSIZE), 0); 
+	int num_seg_rounded = (NUM_SEG + (8 - 1)) & ~(8 - 1);
 	int i;
-	for (i = 0; i < NUM_SEG; i++) {
+	for (i = 0; i < num_seg_rounded; i++) {
 		PUT(heap_listp + ((2 + i) * WSIZE), 0); /* Segment pointer */ 
 	}
 	PUT(heap_listp + ((2 + NUM_SEG) * WSIZE), PACK(NUM_SEG*WSIZE + 2*DSIZE, 1)); /* Prologue footer */ 
@@ -134,10 +135,10 @@ get_segregation(size_t size)
 {
         // Size classes: 1-2, 3, 4, 5-8, 9-16, 17-32, 33-64, 65-128, 129-256, 
         // 257-512, 513-1024, 1025-2048, 2049-4096, 4097-8192, 8193-inf
+	//size -= 2*DSIZE + WSIZE;
+
 	void* p = heap_listp;
-	if (size <= 0) {
-		return NULL;
-	} else if (size <= 2) {
+        if (size <= 2) {
 	} else if (size <= 3) {
 		p += WSIZE;
 	} else if (size <= 4) {
@@ -285,7 +286,7 @@ mm_free(void *bp)
 void *
 mm_realloc(void *ptr, size_t size)
 {
-	size_t oldsize;
+	size_t oldsize = GET_SIZE(HDRP(ptr));
 	void *newptr;
 
 	/* If size == 0 then this is just free, and we return NULL. */
@@ -298,11 +299,16 @@ mm_realloc(void *ptr, size_t size)
 	if (ptr == NULL)
 		return (mm_malloc(size));
 
+	if (size + 2*DSIZE + WSIZE <= oldsize) {
+		return ptr;
+	}
+
 	/* If we are the last block, just extend and coalesce */
 	if (NEXT_BLKP(HDRP(ptr)) == NULL) {
 		newptr = mm_malloc(size - GET_SIZE(HDRP(ptr)));
 		return coalesce(ptr);
 	}
+	size = MAX(size, 2*oldsize);
 
 	newptr = mm_malloc(size);
 
@@ -326,7 +332,6 @@ void remove_freelist(void *bp) {
 	void *prev = (void*) GET_PREV_FREE(FTRP(bp));
 	void *next = (void*) GET_NEXT_FREE(HDRP(bp));
 
-
 	if (check_verbose)
 		printf("remove_freelist(%p) prev=%p next=%p\n", bp, prev, next);
 
@@ -337,8 +342,6 @@ void remove_freelist(void *bp) {
 		PUT(seg, (uintptr_t) next);
 	} else {
 		PUT_NEXT_FREE(HDRP(prev), (uintptr_t) next);
-		PUT_PREV_FREE(FTRP(bp), 0);
-		PUT_NEXT_FREE(HDRP(bp), 0);
 	}
 }
 
@@ -457,7 +460,7 @@ find_fit(size_t asize)
 		void *bp;
 		/* Search for the first fit. */
 		for (bp = (void*) GET(seg); bp != NULL; bp = (void*) GET_NEXT_FREE(HDRP(bp))) {
-			if (!GET_ALLOC(HDRP(bp)) && asize <= GET_SIZE(HDRP(bp))) {
+			if (asize <= GET_SIZE(HDRP(bp))) {
 				return (bp);
 			}
 		}
