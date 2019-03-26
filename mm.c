@@ -81,6 +81,9 @@ static void checkblock(void *bp);
 static void checkheap(bool verbose);
 static void printblock(void *bp); 
 
+static int should_check = 0;
+static int check_verbose = 0;
+
 /* 
  * Requires:
  *   None.
@@ -92,7 +95,6 @@ static void printblock(void *bp);
 int
 mm_init(void) 
 {
-	printf("mm_init called\n");
 	/* Create the initial empty heap. */
 	if ((heap_listp = mem_sbrk((6 + NUM_SEG) * WSIZE)) == (void *)-1)
 		return (-1);
@@ -108,13 +110,15 @@ mm_init(void)
 	PUT(heap_listp + ((5 + NUM_SEG) * WSIZE), PACK(0, 1));     /* Epilogue header */
 	heap_listp += (2 * WSIZE);
 
+	if (should_check)
+		checkheap(check_verbose);
 
-	printf("Extending heap in mm_init\n");
 	/* Extend the empty heap with a free block of CHUNKSIZE bytes. */
 	if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
 		return (-1);
-	
-	checkheap(true);
+
+	if (should_check)
+		checkheap(check_verbose);
 
 	return (0);
 }
@@ -186,7 +190,6 @@ void seg_block(void *bp)
 void *
 mm_malloc(size_t size) 
 {
-	printf("mm_malloc(%d)\n", (int)size);
 	size_t asize;      /* Adjusted block size */
 	size_t extendsize; /* Amount to extend heap if no fit */
 	void *bp;
@@ -201,13 +204,15 @@ mm_malloc(size_t size)
 	else
 		asize = WSIZE * ((size + 2*DSIZE + (WSIZE - 1)) / WSIZE);
 
-	printf("Asize: %d\n", (int)asize);
 
 	void *prevP;
 	/* Search the free list for a fit. */
 	if ((bp = find_fit(asize, &prevP)) != NULL) {
 		place(prevP, bp, asize);
-		checkheap(true);
+
+		if (should_check)
+			checkheap(check_verbose);
+
 		return (bp);
 	}
 
@@ -216,7 +221,10 @@ mm_malloc(size_t size)
 	if ((bp = extend_heap(extendsize / WSIZE)) == NULL)  
 		return (NULL);
 	place(NULL, bp, asize);
-	checkheap(true);
+	
+	if (should_check)
+		checkheap(check_verbose);
+
 	return (bp);
 } 
 
@@ -230,7 +238,6 @@ mm_malloc(size_t size)
 void
 mm_free(void *bp)
 {
-	printf("mm_free called\n");
 	size_t size;
 
 	/* Ignore spurious requests. */
@@ -241,6 +248,12 @@ mm_free(void *bp)
 	size = GET_SIZE(HDRP(bp));
 	PUT(HDRP(bp), PACK(size, 0));
 	PUT(FTRP(bp), PACK(size, 0));
+	PUT(FTRP(bp) + WSIZE, PACK(size, 0));
+	seg_block(bp);
+	
+	if (should_check)
+		checkheap(check_verbose);
+	
 	coalesce(bp);
 }
 
@@ -300,7 +313,7 @@ void remove_freelist(void *bp) {
 	void *prevP = NULL;
 	while (curP != bp && curP != NULL) {
 		prevP = curP;
-		curP = (void*) GET_NEXT_FREE(curP);
+		curP = (void*) GET_NEXT_FREE(HDRP(curP));
 	}
 	if (curP == NULL) {
 		printf("Attempt to remove %p from list failed\n", bp);
@@ -310,6 +323,8 @@ void remove_freelist(void *bp) {
 	} else {
 		PUT_NEXT_FREE(HDRP(prevP), GET_NEXT_FREE(HDRP(bp)));
 	}
+	if (should_check)
+		checkheap(check_verbose);
 }
 
 /*
@@ -330,8 +345,6 @@ coalesce(void *bp)
 	size_t size = GET_SIZE(HDRP(bp));
 	bool prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
 	bool next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
-
-	printf("coalescing size=%d prev=%d next=%d\n",(int)size, (int)prev_alloc, (int)next_alloc);
 
 	if (prev_alloc && next_alloc) {                 /* Case 1 */
 		return (bp);
@@ -364,8 +377,9 @@ coalesce(void *bp)
 		bp = PREV_BLKP(bp);
 		seg_block(bp);
 	}
-	printf("finished coalesce\n");
-	checkheap(true);
+	if (should_check)
+		checkheap(check_verbose);
+
 	return (bp);
 }
 
@@ -397,8 +411,8 @@ extend_heap(size_t words)
 
 	seg_block(bp);
 
-	printf("Checking heap in extend heap\n");
-	checkheap(true);
+        if (should_check)
+		checkheap(check_verbose);
 
 	/* Coalesce if the previous block was free. */
 	return (coalesce(bp));
@@ -416,7 +430,6 @@ extend_heap(size_t words)
 static void *
 find_fit(size_t asize, void** prevP)
 {
-	printf("find_fit\n");
 	void *seg;
 	for (seg = get_segregation(asize); (((char *)seg) - heap_listp) / WSIZE < NUM_SEG; seg += WSIZE) {
 		void *bp;
@@ -424,8 +437,6 @@ find_fit(size_t asize, void** prevP)
 		/* Search for the first fit. */
 		for (bp = (void*) GET(seg); bp != NULL; bp = (void*) GET_NEXT_FREE(HDRP(bp))) {
 			if (!GET_ALLOC(HDRP(bp)) && asize <= GET_SIZE(HDRP(bp))) {
-				printf("fit found: ");
-				printblock(bp);
 				return (bp);
 			}
 			*prevP = bp;
@@ -447,8 +458,6 @@ find_fit(size_t asize, void** prevP)
 static void
 place(void *prevP, void *bp, size_t asize)
 {
-	(void)prevP;
-	printf("place(%d)\n", (int)asize);
 
 	size_t csize = GET_SIZE(HDRP(bp));   
 
@@ -462,26 +471,24 @@ place(void *prevP, void *bp, size_t asize)
 	}
 
 	if ((csize - asize) >= (2 * DSIZE + WSIZE)) { 
-		printf("bigger\n");
 		PUT(HDRP(bp), PACK(asize, 1));
 		PUT(HDRLINK(bp), 0);
 		PUT(FTRP(bp), PACK(asize, 1));
 		PUT(FTRP(bp) + WSIZE, PACK(asize, 1));
-		printf("creating free\n");
 		// Create new free block
 		bp = NEXT_BLKP(bp);
 		PUT(HDRP(bp), PACK(csize - asize, 0));
 		PUT(FTRP(bp), PACK(csize - asize, 0));
 		PUT(FTRP(bp) + WSIZE, PACK(csize - asize, 0));
-		printf("seg block\n");
 		seg_block(bp);
-		printf("done\n");
 	} else {
 		PUT(HDRP(bp), PACK(csize, 1));
 		PUT(HDRLINK(bp), 0);
 		PUT(FTRP(bp), PACK(csize, 1));
 		PUT(FTRP(bp) + WSIZE, PACK(csize, 1));
 	}
+	if (should_check)
+		checkheap(check_verbose);
 
 }
 
@@ -499,6 +506,7 @@ place(void *prevP, void *bp, size_t asize)
 static void
 checkblock(void *bp) 
 {
+	printf("checkblock %p\n", bp);
 	if (!GET_ALLOC(HDRP(bp))) {
 		int found = 0;
 		void* p = (void*)GET(get_segregation(GET_SIZE(HDRP(bp))));
@@ -507,7 +515,8 @@ checkblock(void *bp)
 				found = 1;
 				break;
 			}
-			p = (void*)GET_NEXT_FREE(p);
+			p = (void*)GET_NEXT_FREE(HDRP(p));
+			printf("tried %p\n", p);
 		}
 		if (!found)
 			printf("Error: Free block %p is not in the segregation list\n", bp);
@@ -518,6 +527,7 @@ checkblock(void *bp)
 	if (GET(HDRP(bp)) != GET(FTRP(bp)))
 		printf("Error: header does not match footer, was %d != %d\n",
 		       (int)GET(HDRP(bp)), (int)GET(FTRP(bp)));
+	printf("finished checkblock\n");
 }
 
 /* 
@@ -541,6 +551,8 @@ checkheap(bool verbose)
 		printf("Bad prologue header: Was unallocated\n");
 	checkblock(heap_listp);
 	for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
+
+		printf("bp is %p\n", bp);
 		if (verbose)
 			printblock(bp);
 		checkblock(bp);
@@ -550,6 +562,7 @@ checkheap(bool verbose)
 		printblock(bp);
 	if (GET_SIZE(HDRP(bp)) != 0 || !GET_ALLOC(HDRP(bp)))
 		printf("Bad epilogue header, was %d\n", (int)GET(HDRP(bp)));
+
 	int i;
 	for (i = 0; i < NUM_SEG; i++) {
 		if (verbose)
@@ -563,7 +576,7 @@ checkheap(bool verbose)
 				printf("Block %p was in free list %d but was size %d", p, i, (int)size);
 			if (GET_ALLOC(HDRP(p)))
 				printf("Block %p was in free list but was not free.\n", p);
-			p = (void*) GET_NEXT_FREE(p);
+			p = (void*) GET_NEXT_FREE(HDRP(p));
 		}
 	}
 }
