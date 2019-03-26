@@ -56,6 +56,8 @@ team_t team = {
 #define GET_SIZE(p)   (GET(p) & ~(WSIZE - 1))
 #define GET_NEXT_FREE(p) (GET(p + WSIZE))
 #define PUT_NEXT_FREE(p, val) (PUT(p + WSIZE, val))
+#define GET_PREV_FREE(p) (GET(p + WSIZE))
+#define PUT_PREV_FREE(p, val) (PUT(p + WSIZE, val))
 #define GET_ALLOC(p)  (GET(p) & 0x1)
 
 /* Given block ptr bp, compute address of its header and footer. */
@@ -174,8 +176,11 @@ get_segregation(size_t size)
 void seg_block(void *bp)
 {
 	uintptr_t seg_ptr = (uintptr_t) get_segregation(GET_SIZE(HDRP(bp)));
+	if (GET(seg_ptr) != 0)
+		PUT_PREV_FREE(FTRP(GET(seg_ptr)), (uintptr_t) bp);
 	PUT_NEXT_FREE(HDRP(bp), GET(seg_ptr));
 	PUT(seg_ptr, (uintptr_t)bp);
+	PUT_PREV_FREE(FTRP(bp), 0);
 }
 
 /* 
@@ -190,11 +195,14 @@ void seg_block(void *bp)
 void *
 mm_malloc(size_t size) 
 {
+	if (check_verbose)
+		printf("mm_malloc(%d)\n", (int) size);
+
 	size_t asize;      /* Adjusted block size */
 	size_t extendsize; /* Amount to extend heap if no fit */
 	void *bp;
 
-	/* Ignore spurious requests. */
+ 	/* Ignore spurious requests. */
 	if (size == 0)
 		return (NULL);
 
@@ -238,6 +246,8 @@ mm_malloc(size_t size)
 void
 mm_free(void *bp)
 {
+	if (check_verbose)
+		printf("mm_free(%p)\n", bp);
 	size_t size;
 
 	/* Ignore spurious requests. */
@@ -248,7 +258,6 @@ mm_free(void *bp)
 	size = GET_SIZE(HDRP(bp));
 	PUT(HDRP(bp), PACK(size, 0));
 	PUT(FTRP(bp), PACK(size, 0));
-	PUT(FTRP(bp) + WSIZE, PACK(size, 0));
 	seg_block(bp);
 	
 	if (should_check)
@@ -305,26 +314,21 @@ mm_realloc(void *ptr, size_t size)
 }
 
 void remove_freelist(void *bp) {
-	void *segPtr = get_segregation(GET_SIZE(HDRP(bp)));
-	if (segPtr == NULL) {
-		printf("Attempt to remove %p from list failed\n", bp);
-	}
-	void *curP = (void*) GET(segPtr);
-	void *prevP = NULL;
-	while (curP != bp && curP != NULL) {
-		prevP = curP;
-		curP = (void*) GET_NEXT_FREE(HDRP(curP));
-	}
-	if (curP == NULL) {
-		printf("Attempt to remove %p from list failed\n", bp);
-	}
-	if (prevP == NULL) {
-		PUT(segPtr, GET_NEXT_FREE(HDRP(bp)));
+	if (check_verbose)
+		printf("remove_freelist(%p)\n", bp);
+	void *prev = (void*) GET_PREV_FREE(FTRP(bp));
+	void *next = (void*) GET_NEXT_FREE(HDRP(bp));
+
+	if (prev == NULL) {
+		void *seg = get_segregation(GET_SIZE(HDRP(bp)));
+		PUT(seg, (uintptr_t) next);
 	} else {
-		PUT_NEXT_FREE(HDRP(prevP), GET_NEXT_FREE(HDRP(bp)));
+		if (next != NULL)
+			PUT_PREV_FREE(FTRP(next), (uintptr_t) prev);
+		PUT_NEXT_FREE(HDRP(prev), (uintptr_t) next);
+		PUT_PREV_FREE(FTRP(bp), 0);
+		PUT_NEXT_FREE(HDRP(bp), 0);
 	}
-	if (should_check)
-		checkheap(check_verbose);
 }
 
 /*
@@ -342,6 +346,8 @@ void remove_freelist(void *bp) {
 static void *
 coalesce(void *bp) 
 {
+	if (check_verbose)
+		printf("coalesce(%p)\n", bp);
 	size_t size = GET_SIZE(HDRP(bp));
 	bool prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
 	bool next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
@@ -403,9 +409,7 @@ extend_heap(size_t words)
 
 	/* Initialize free block header/footer and the epilogue header. */
 	PUT(HDRP(bp), PACK(size, 0));         /* Free block header */
-	PUT(HDRLINK(bp), 0);         /* Free block linked ptr */
 	PUT(FTRP(bp), PACK(size, 0));         /* Free block footer */
-	PUT(FTRP(bp) + WSIZE, PACK(size, 0));         /* Free block footer */
 	PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* New epilogue header */
 	PUT(HDRP(NEXT_BLKP(bp)) + WSIZE, PACK(0, 1)); /* New epilogue header */
 
@@ -474,18 +478,15 @@ place(void *prevP, void *bp, size_t asize)
 		PUT(HDRP(bp), PACK(asize, 1));
 		PUT(HDRLINK(bp), 0);
 		PUT(FTRP(bp), PACK(asize, 1));
-		PUT(FTRP(bp) + WSIZE, PACK(asize, 1));
 		// Create new free block
 		bp = NEXT_BLKP(bp);
 		PUT(HDRP(bp), PACK(csize - asize, 0));
 		PUT(FTRP(bp), PACK(csize - asize, 0));
-		PUT(FTRP(bp) + WSIZE, PACK(csize - asize, 0));
 		seg_block(bp);
 	} else {
 		PUT(HDRP(bp), PACK(csize, 1));
 		PUT(HDRLINK(bp), 0);
 		PUT(FTRP(bp), PACK(csize, 1));
-		PUT(FTRP(bp) + WSIZE, PACK(csize, 1));
 	}
 	if (should_check)
 		checkheap(check_verbose);
@@ -506,7 +507,6 @@ place(void *prevP, void *bp, size_t asize)
 static void
 checkblock(void *bp) 
 {
-	printf("checkblock %p\n", bp);
 	if (!GET_ALLOC(HDRP(bp))) {
 		int found = 0;
 		void* p = (void*)GET(get_segregation(GET_SIZE(HDRP(bp))));
@@ -516,7 +516,6 @@ checkblock(void *bp)
 				break;
 			}
 			p = (void*)GET_NEXT_FREE(HDRP(p));
-			printf("tried %p\n", p);
 		}
 		if (!found)
 			printf("Error: Free block %p is not in the segregation list\n", bp);
@@ -527,7 +526,6 @@ checkblock(void *bp)
 	if (GET(HDRP(bp)) != GET(FTRP(bp)))
 		printf("Error: header does not match footer, was %d != %d\n",
 		       (int)GET(HDRP(bp)), (int)GET(FTRP(bp)));
-	printf("finished checkblock\n");
 }
 
 /* 
@@ -551,8 +549,6 @@ checkheap(bool verbose)
 		printf("Bad prologue header: Was unallocated\n");
 	checkblock(heap_listp);
 	for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
-
-		printf("bp is %p\n", bp);
 		if (verbose)
 			printblock(bp);
 		checkblock(bp);
