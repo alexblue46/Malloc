@@ -291,6 +291,27 @@ mm_realloc(void *ptr, size_t size)
 	return (newptr);
 }
 
+void remove_freelist(void *bp) {
+	void *segPtr = get_segregation(GET_SIZE(HDRP(bp)));
+	if (segPtr == NULL) {
+		printf("Attempt to remove %p from list failed\n", bp);
+	}
+	void *curP = (void*) GET(segPtr);
+	void *prevP = NULL;
+	while (curP != bp && curP != NULL) {
+		prevP = curP;
+		curP = (void*) GET_NEXT_FREE(curP);
+	}
+	if (curP == NULL) {
+		printf("Attempt to remove %p from list failed\n", bp);
+	}
+	if (prevP == NULL) {
+		PUT(segPtr, GET_NEXT_FREE(HDRP(bp)));
+	} else {
+		PUT_NEXT_FREE(HDRP(prevP), GET_NEXT_FREE(HDRP(bp)));
+	}
+}
+
 /*
  * The following routines are internal helper routines.
  */
@@ -315,21 +336,36 @@ coalesce(void *bp)
 	if (prev_alloc && next_alloc) {                 /* Case 1 */
 		return (bp);
 	} else if (prev_alloc && !next_alloc) {         /* Case 2 */
+		remove_freelist(NEXT_BLKP(bp));
+		remove_freelist(bp);
 		size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
 		PUT(HDRP(bp), PACK(size, 0));
 		PUT(FTRP(bp), PACK(size, 0));
+		PUT(FTRP(bp) + WSIZE, PACK(size, 0));
+		seg_block(bp);
 	} else if (!prev_alloc && next_alloc) {         /* Case 3 */
+		remove_freelist(PREV_BLKP(bp));
+		remove_freelist(bp);
 		size += GET_SIZE(HDRP(PREV_BLKP(bp)));
 		PUT(FTRP(bp), PACK(size, 0));
+		PUT(FTRP(bp) + WSIZE, PACK(size, 0));
 		PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
 		bp = PREV_BLKP(bp);
+		seg_block(bp);
 	} else {                                        /* Case 4 */
+		remove_freelist(PREV_BLKP(bp));
+		remove_freelist(bp);
+		remove_freelist(NEXT_BLKP(bp));
 		size += GET_SIZE(HDRP(PREV_BLKP(bp))) + 
 		    GET_SIZE(FTRP(NEXT_BLKP(bp)));
 		PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
 		PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
+		PUT(FTRP(NEXT_BLKP(bp)) + WSIZE, PACK(size, 0));
 		bp = PREV_BLKP(bp);
+		seg_block(bp);
 	}
+	printf("finished coalesce\n");
+	checkheap(true);
 	return (bp);
 }
 
@@ -418,7 +454,7 @@ place(void *prevP, void *bp, size_t asize)
 
 	void *nextFree = (void*) GET_NEXT_FREE(HDRP(bp));
 	if (prevP == NULL) {
-		void *seg = get_segregation(asize);
+		void *seg = get_segregation(csize);
 		PUT(seg, (uintptr_t) nextFree);
 	} else {
 		// Delete old free block from linked list
