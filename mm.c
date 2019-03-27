@@ -135,58 +135,93 @@ get_segregation(size_t size)
 {
         // Size classes: 1-2, 3, 4, 5-8, 9-16, 17-32, 33-64, 65-128, 129-256, 
         // 257-512, 513-1024, 1025-2048, 2049-4096, 4097-8192, 8193-inf
-	//size -= 2*DSIZE + WSIZE;
+	size -= 2*DSIZE + WSIZE;
 
-	void* p = heap_listp;
-        if (size <= 2) {
-	} else if (size <= 3) {
-		p += WSIZE;
-	} else if (size <= 4) {
-		p += 2 * WSIZE;
-	}  else if (size <= 8) {
-		p += 3 * WSIZE;
-	}  else if (size <= 16) {
-		p += 4 * WSIZE;
-	}  else if (size <= 32) {
-		p += 5 * WSIZE;
-	}  else if (size <= 64) {
-		p += 6 * WSIZE;
-	}  else if (size <= 128) {
-		p += 7 * WSIZE;
-	}  else if (size <= 256) {
-		p += 8 * WSIZE;
-	}  else if (size <= 512) {
-		p += 9 * WSIZE;
-	}  else if (size <= 1024) {
-		p += 10 * WSIZE;
-	}  else if (size <= 2048) {
-		p += 11 * WSIZE;
-	}  else if (size <= 4096) {
-		p += 12 * WSIZE;
-	}  else if (size <= 8192) {
-		p += 13 * WSIZE;
-	} else if (size <= 16384){
-		p += 14 * WSIZE;
-	} else {
-		p += 15 * WSIZE;
+	void* p;
+	if (size <= 256) {
+		if (size <= 2) {
+			p = heap_listp + WSIZE;
+		} else if (size <= 4) {
+			p = heap_listp + 2 * WSIZE;
+		}  else if (size <= 6) {
+			p = heap_listp + 3 * WSIZE;
+		}  else if (size <= 8) {
+			p = heap_listp + 4 * WSIZE;
+		}  else if (size <= 16) {
+			p = heap_listp + 5 * WSIZE;
+		}  else if (size <= 32) {
+			p = heap_listp + 6 * WSIZE;
+		}  else if (size <= 64) {
+			p = heap_listp + 7 * WSIZE;
+		}  else if (size <= 128) {
+			p = heap_listp + 8 * WSIZE;
+		}  else  {
+			p = heap_listp + 9 * WSIZE;
+		}  
+	} 
+	else if (size <= 8192) {
+		if (size <= 512) {
+			p = heap_listp + 10 * WSIZE;
+		}  else if (size <= 1024) {
+			p = heap_listp + 11 * WSIZE;
+		}  else if (size <= 2056) {
+			p = heap_listp + 12 * WSIZE;
+		}  else if (size <= 4096) {
+			p = heap_listp + 13 * WSIZE;
+		} else if (size <= 8192){
+			p = heap_listp + 14 * WSIZE;
+		} 
 	}
+	else {
+		p = heap_listp + 15 * WSIZE;
+	}
+	
 	return p;
 }
+
 /*
  * Adds this block to the segregation lists
  */
 void seg_block(void *bp)
 {
-//	printf("seg_block %p w size=%d\n", bp, (int) GET_SIZE(HDRP(bp)));
 	uintptr_t seg_ptr = (uintptr_t) get_segregation(GET_SIZE(HDRP(bp)));
-//	printf("next: %p\n", (void*)GET(seg_ptr));
-	if (GET(seg_ptr) != 0) {
+	/*if (GET(seg_ptr) != 0) {
 		PUT_PREV_FREE(FTRP(GET(seg_ptr)), (uintptr_t) bp);
 	}
 	PUT_NEXT_FREE(HDRP(bp), GET(seg_ptr));
 	PUT(seg_ptr, (uintptr_t)bp);
-	PUT_PREV_FREE(FTRP(bp), 0);
-//	printf("this ptr %p\n", (void*)GET(seg_ptr));
+	PUT_PREV_FREE(FTRP(bp), 0);*/
+	if (GET(seg_ptr) == 0) {
+		PUT_NEXT_FREE(HDRP(bp), (uintptr_t) bp);
+		PUT(seg_ptr, (uintptr_t) bp);
+		PUT_PREV_FREE(FTRP(bp), (uintptr_t) bp);
+	} else {
+		PUT_NEXT_FREE(HDRP(GET_PREV_FREE(FTRP(GET(seg_ptr)))), (uintptr_t) bp);
+		PUT_PREV_FREE(FTRP(bp), GET_PREV_FREE(FTRP(GET(seg_ptr))));
+		PUT_NEXT_FREE(HDRP(bp), GET(seg_ptr));
+		PUT_PREV_FREE(FTRP(GET(seg_ptr)), (uintptr_t) bp);
+		PUT(seg_ptr, (uintptr_t) bp);
+	}
+}
+
+void remove_freelist(void *bp) {
+	void *prev = (void*) GET_PREV_FREE(FTRP(bp));
+	void *next = (void*) GET_NEXT_FREE(HDRP(bp));
+
+	if (check_verbose)
+		printf("remove_freelist(%p) prev=%p next=%p\n", bp, prev, next);
+
+	void *seg = get_segregation(GET_SIZE(HDRP(bp)));
+	if (next == bp) {
+		PUT(seg, 0);
+	} else {
+		PUT_NEXT_FREE(HDRP(prev), (uintptr_t) next);
+		PUT_PREV_FREE(FTRP(next), (uintptr_t) prev);
+		if ((void*) GET(seg) == bp) {
+			PUT(seg, (uintptr_t) next);
+		}
+	}
+		
 }
 
 /* 
@@ -262,12 +297,11 @@ mm_free(void *bp)
 	size = GET_SIZE(HDRP(bp));
 	PUT(HDRP(bp), PACK(size, 0));
 	PUT(FTRP(bp), PACK(size, 0));
-	seg_block(bp);
-	
-	if (should_check)
-		checkheap(check_verbose);
 	
 	coalesce(bp);
+
+	if (should_check)
+		checkheap(check_verbose);
 }
 
 /*
@@ -286,6 +320,8 @@ mm_free(void *bp)
 void *
 mm_realloc(void *ptr, size_t size)
 {
+	if (check_verbose)
+		printf("mm_realloc\n");
 	size_t oldsize = GET_SIZE(HDRP(ptr));
 	void *newptr;
 
@@ -299,15 +335,51 @@ mm_realloc(void *ptr, size_t size)
 	if (ptr == NULL)
 		return (mm_malloc(size));
 
-	if (size + 2*DSIZE + WSIZE <= oldsize) {
+	if (size + 2*DSIZE <= oldsize) {
 		return ptr;
+	}
+	void *nextblk = NEXT_BLKP(ptr);
+	void *prevblk = PREV_BLKP(ptr);
+	if (nextblk != NULL && 
+	    !GET_ALLOC(HDRP(nextblk)) && 
+	    GET_SIZE(HDRP(nextblk)) + oldsize >= size + 2*DSIZE) {
+		int newsize = GET_SIZE(HDRP(nextblk)) + oldsize;
+		remove_freelist(nextblk);
+		PUT(HDRP(ptr), PACK(newsize, 1));
+		PUT(FTRP(ptr), PACK(newsize, 1));
+		return ptr;
+	} else if (prevblk != NULL && 
+		   !GET_ALLOC(HDRP(prevblk)) && 
+		   GET_SIZE(HDRP(prevblk)) + oldsize >= size + 2*DSIZE) {
+		int newsize = GET_SIZE(HDRP(prevblk)) + oldsize;
+		remove_freelist(prevblk);
+		PUT(HDRP(prevblk), PACK(newsize, 1));
+		PUT(FTRP(prevblk), PACK(newsize, 1));
+		memmove(prevblk, ptr, oldsize - DSIZE);
+		return prevblk;
+	} else if (nextblk != NULL && prevblk != NULL && 
+		   !GET_ALLOC(HDRP(nextblk)) && !GET_ALLOC(HDRP(prevblk)) && 
+		   GET_SIZE(HDRP(prevblk)) + oldsize + GET_SIZE(HDRP(nextblk)) >= size + 2*DSIZE) {
+		int newsize = GET_SIZE(HDRP(prevblk)) + oldsize + GET_SIZE(HDRP(nextblk));
+		remove_freelist(prevblk);
+		remove_freelist(nextblk);
+		PUT(HDRP(prevblk), PACK(newsize, 1));
+		PUT(FTRP(prevblk), PACK(newsize, 1));
+		memmove(prevblk, ptr, oldsize - DSIZE);
+		return prevblk;
 	}
 
 	/* If we are the last block, just extend and coalesce */
-	if (NEXT_BLKP(HDRP(ptr)) == NULL) {
-		newptr = mm_malloc(size - GET_SIZE(HDRP(ptr)));
-		return coalesce(ptr);
-	}
+	/*if (NEXT_BLKP(HDRP(ptr)) == NULL) {
+		size_t asize = size - GET_SIZE(HDRP(ptr));
+		mm_free(ptr);
+	        int extendsize = MAX(asize, CHUNKSIZE);
+		if ((ptr = extend_heap(extendsize / WSIZE)) == NULL)  
+			return (NULL);
+		ptr = coalesce(ptr);
+		place(ptr, size);
+		return ptr;
+		}*/
 	size = MAX(size, 2*oldsize);
 
 	newptr = mm_malloc(size);
@@ -328,22 +400,7 @@ mm_realloc(void *ptr, size_t size)
 	return (newptr);
 }
 
-void remove_freelist(void *bp) {
-	void *prev = (void*) GET_PREV_FREE(FTRP(bp));
-	void *next = (void*) GET_NEXT_FREE(HDRP(bp));
 
-	if (check_verbose)
-		printf("remove_freelist(%p) prev=%p next=%p\n", bp, prev, next);
-
-	if (next != NULL)
-		PUT_PREV_FREE(FTRP(next), (uintptr_t) prev);
-	if (prev == NULL) {
-		void *seg = get_segregation(GET_SIZE(HDRP(bp)));
-		PUT(seg, (uintptr_t) next);
-	} else {
-		PUT_NEXT_FREE(HDRP(prev), (uintptr_t) next);
-	}
-}
 
 /*
  * The following routines are internal helper routines.
@@ -351,7 +408,7 @@ void remove_freelist(void *bp) {
 
 /*
  * Requires:
- *   "bp" is the address of a newly freed block.
+ *   "bp" is the address of a newly freed block, not in the free list.
  *
  * Effects:
  *   Perform boundary tag coalescing.  Returns the address of the coalesced
@@ -366,36 +423,27 @@ coalesce(void *bp)
 	bool prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
 	bool next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
 
-	if (should_check)
-		checkheap(check_verbose);
-
 	if (check_verbose)
 		printf("coalescing w/ size=%d prev=%d next=%d\n", (int) size, (int) prev_alloc, (int) next_alloc);
 
 	if (prev_alloc && next_alloc) {                 /* Case 1 */
-		return (bp);
+		seg_block(bp);
 	} else if (prev_alloc && !next_alloc) {         /* Case 2 */
 		remove_freelist(NEXT_BLKP(bp));
-		remove_freelist(bp);
 		size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
 		PUT(HDRP(bp), PACK(size, 0));
 		PUT(FTRP(bp), PACK(size, 0));
 		seg_block(bp);
 	} else if (!prev_alloc && next_alloc) {         /* Case 3 */
 		remove_freelist(PREV_BLKP(bp));
-		remove_freelist(bp);
 		size += GET_SIZE(HDRP(PREV_BLKP(bp)));
 		PUT(FTRP(bp), PACK(size, 0));
 		PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
 		bp = PREV_BLKP(bp);
-		
-		//printf("about to segblock\n");
-		//checkheap(true);
-		
+	        
 		seg_block(bp);
 	} else {                                        /* Case 4 */
 		remove_freelist(PREV_BLKP(bp));
-		remove_freelist(bp);
 		remove_freelist(NEXT_BLKP(bp));
 		size += GET_SIZE(HDRP(PREV_BLKP(bp))) + 
 		    GET_SIZE(FTRP(NEXT_BLKP(bp)));
@@ -420,6 +468,8 @@ coalesce(void *bp)
 static void *
 extend_heap(size_t words) 
 {
+	if (check_verbose)
+		printf("extend_heap(%d)\n", (int) words);
 	size_t size;
 	void *bp;
 
@@ -434,13 +484,13 @@ extend_heap(size_t words)
 	PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* New epilogue header */
 	PUT(HDRP(NEXT_BLKP(bp)) + WSIZE, PACK(0, 1)); /* New epilogue header */
 
-	seg_block(bp);
+	/* Coalesce if the previous block was free. */
+	bp = (coalesce(bp));
 
         if (should_check)
 		checkheap(check_verbose);
 
-	/* Coalesce if the previous block was free. */
-	return (coalesce(bp));
+	return bp;
 }
 
 /*
@@ -454,17 +504,32 @@ extend_heap(size_t words)
 static void *
 find_fit(size_t asize)
 {
+	if (check_verbose)
+		printf("find_fit\n");
+	// If there is one element in the list, check if it fits
+	void *firstcheck = (void*) GET(get_segregation(asize));
+	if (firstcheck != NULL && asize <= GET_SIZE(HDRP(firstcheck))) {
+		return (firstcheck);
+	}
+	// otherwise start at the NEXT segregation to improve perf
+	void *seg = get_segregation(asize);
+	if (seg < (void*)((NUM_SEG - 1) * WSIZE + heap_listp)) {
+		seg += WSIZE;
+	}
 	void *last_seg = NUM_SEG * WSIZE + heap_listp; 
-	void *seg;
-	for (seg = get_segregation(asize); seg < last_seg; seg += WSIZE) {
+	for (; seg < last_seg; seg += WSIZE) {
 		void *bp;
 		/* Search for the first fit. */
-		for (bp = (void*) GET(seg); bp != NULL; bp = (void*) GET_NEXT_FREE(HDRP(bp))) {
+		void *startBp = NULL;
+		for (bp = (void*) GET(seg); bp != startBp; bp = (void*) GET_NEXT_FREE(HDRP(bp))) {
 			if (asize <= GET_SIZE(HDRP(bp))) {
+				PUT(seg, (uintptr_t) GET_NEXT_FREE(HDRP(bp)));
 				return (bp);
 			}
+			startBp = (void*) GET(seg);
 		}
 	}
+
 	/* No fit was found. */
 	return (NULL);
 }
@@ -481,6 +546,8 @@ find_fit(size_t asize)
 static void
 place(void *bp, size_t asize)
 {
+	if (check_verbose)
+		printf("place\n");
 	if (should_check) {
 		checkheap(check_verbose);
 	}
@@ -488,7 +555,8 @@ place(void *bp, size_t asize)
 
         remove_freelist(bp);
 
-	if ((csize - asize) >= (2 * DSIZE + WSIZE)) { 
+	if ((csize - asize) >= (2 * DSIZE + WSIZE) + 128) { 
+	//if (csize > asize*2 && (csize - asize) >= (2 * DSIZE + WSIZE)) {
 		PUT(HDRP(bp), PACK(asize, 1));
 		PUT(HDRLINK(bp), 0);
 		PUT(FTRP(bp), PACK(asize, 1));
@@ -524,13 +592,15 @@ checkblock(void *bp)
 	bool was_error = false;
 	if (!GET_ALLOC(HDRP(bp))) {
 		int found = 0;
+		void *startP = NULL;
 		void* p = (void*)GET(get_segregation(GET_SIZE(HDRP(bp))));
-		while (p != NULL) {
+		while (p != startP) {
 			if (p == bp) {
 				found = 1;
 				break;
 			}
 			p = (void*)GET_NEXT_FREE(HDRP(p));
+			startP = (void*)GET(get_segregation(GET_SIZE(HDRP(bp))));
 		}
 		if (!found) {
 			printf("Error: Free block %p is not in the segregation list\n", bp);
@@ -593,25 +663,36 @@ checkheap(bool verbose)
 		if (verbose)
 			printf("Free list %d:\n", i);
 		void* p = (void*) GET(heap_listp + i * WSIZE);
-		void *prevP = NULL;
-		while (p != NULL) {
-			if (verbose)
-				printblock(p);
-			size_t size = GET_SIZE(HDRP(p));
-			if ((void*)GET_PREV_FREE(FTRP(p)) != prevP) {
-				printf("Block %p had previous block %p but was marked with previous %p.\n", p, prevP, (void*)GET_PREV_FREE(FTRP(p)));
-				was_error = true;
+		if (p != NULL) {
+			int isStart = 1;
+			void* startP = p;
+			void *prevP = NULL;
+			while (isStart || p != startP) {
+				//printf("block %p prev=%p next=%p\n", p, (void*) GET_PREV_FREE(FTRP(p)), (void*) GET_NEXT_FREE(HDRP(p)));
+				isStart = 0;
+				if (verbose)
+					printblock(p);
+				size_t size = GET_SIZE(HDRP(p));
+				if (prevP != NULL && (void*)GET_PREV_FREE(FTRP(p)) != prevP) {
+					printf("Block %p had previous block %p but was marked with previous %p.\n", p, prevP, (void*)GET_PREV_FREE(FTRP(p)));
+					printf("start: %p\n", startP);
+					was_error = true;
+				}
+				if (prevP != NULL && (void*)GET_NEXT_FREE(HDRP(prevP)) != p) {
+					printf("Block %p had next block %p but was marked with next %p.\n", prevP, p, (void*)GET_NEXT_FREE(HDRP(prevP)));
+					was_error = true;
+				}
+				if (get_segregation(size) != heap_listp + i * WSIZE) {
+					printf("Block %p was in free list %d but was size %d. Should have been %d\n", p, i, (int)size, (int) (((char*)get_segregation(size) - heap_listp)/WSIZE));
+					was_error = true;
+				}
+				if (GET_ALLOC(HDRP(p))) {
+					printf("Block %p was in free list but was not free.\n", p);
+					was_error = true;
+				}
+				prevP = p;
+				p = (void*) GET_NEXT_FREE(HDRP(p));
 			}
-			if (get_segregation(size) != heap_listp + i * WSIZE) {
-				printf("Block %p was in free list %d but was size %d. Should have been %d\n", p, i, (int)size, (int) (((char*)get_segregation(size) - heap_listp)/WSIZE));
-				was_error = true;
-			}
-			if (GET_ALLOC(HDRP(p))) {
-				printf("Block %p was in free list but was not free.\n", p);
-				was_error = true;
-			}
-			prevP = p;
-			p = (void*) GET_NEXT_FREE(HDRP(p));
 		}
 	}
 	if (was_error)
