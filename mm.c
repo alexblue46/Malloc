@@ -42,9 +42,10 @@ team_t team = {
 /* Basic constants and macros: */
 #define WSIZE      sizeof(void *) /* Word and header/footer size (bytes) */
 #define DSIZE      (2 * WSIZE)    /* Doubleword size (bytes) */
-#define CHUNKSIZE  (1 << 12)      /* Extend heap by this amount (bytes) */
+#define CHUNKSIZE  (1 << 11)      /* Extend heap by this amount (bytes) */
 #define NUM_SEG (16)
 #define MAX(x, y)  ((x) > (y) ? (x) : (y))  
+#define MIN(x, y)  ((x) < (y) ? (x) : (y))  
 
 /* Pack a size and allocated bit into a word. */
 #define PACK(size, alloc)  ((size) | (alloc))
@@ -69,6 +70,9 @@ team_t team = {
 /* Given block ptr bp, compute address of next and previous blocks. */
 #define NEXT_BLKP(bp)  ((char *)(bp) + GET_SIZE(((char *)(bp) - DSIZE)))
 #define PREV_BLKP(bp)  ((char *)(bp) - GET_SIZE(((char *)(bp) - 2*DSIZE)))
+
+
+#define FAST_LOG2(x) (63U - __builtin_clzl((unsigned long)(x)))
 
 /* Global variables: */
 static char *heap_listp; /* Pointer to first block */  
@@ -103,7 +107,7 @@ mm_init(void)
 		return (-1);
 	PUT(heap_listp, PACK(NUM_SEG*WSIZE + 2*DSIZE, 1)); /* Prologue header */ 
 	PUT(heap_listp + (1 * WSIZE), 0); 
-	int num_seg_rounded = (NUM_SEG + (8 - 1)) & ~(8 - 1);
+	int num_seg_rounded = (NUM_SEG + (WSIZE - 1)) & ~(WSIZE - 1);
 	int i;
 	for (i = 0; i < num_seg_rounded; i++) {
 		PUT(heap_listp + ((2 + i) * WSIZE), 0); /* Segment pointer */ 
@@ -126,7 +130,6 @@ mm_init(void)
 
 	return (0);
 }
-
 /*
  * Given a size, returns a pointer to the segregation list for that size
  */
@@ -135,48 +138,7 @@ get_segregation(size_t size)
 {
         // Size classes: 1-2, 3, 4, 5-8, 9-16, 17-32, 33-64, 65-128, 129-256, 
         // 257-512, 513-1024, 1025-2048, 2049-4096, 4097-8192, 8193-inf
-	size -= 2*DSIZE + WSIZE;
-
-	void* p;
-	if (size <= 256) {
-		if (size <= 2) {
-			p = heap_listp + WSIZE;
-		} else if (size <= 4) {
-			p = heap_listp + 2 * WSIZE;
-		}  else if (size <= 6) {
-			p = heap_listp + 3 * WSIZE;
-		}  else if (size <= 8) {
-			p = heap_listp + 4 * WSIZE;
-		}  else if (size <= 16) {
-			p = heap_listp + 5 * WSIZE;
-		}  else if (size <= 32) {
-			p = heap_listp + 6 * WSIZE;
-		}  else if (size <= 64) {
-			p = heap_listp + 7 * WSIZE;
-		}  else if (size <= 128) {
-			p = heap_listp + 8 * WSIZE;
-		}  else  {
-			p = heap_listp + 9 * WSIZE;
-		}  
-	} 
-	else if (size <= 8192) {
-		if (size <= 512) {
-			p = heap_listp + 10 * WSIZE;
-		}  else if (size <= 1024) {
-			p = heap_listp + 11 * WSIZE;
-		}  else if (size <= 2056) {
-			p = heap_listp + 12 * WSIZE;
-		}  else if (size <= 4096) {
-			p = heap_listp + 13 * WSIZE;
-		} else if (size <= 8192){
-			p = heap_listp + 14 * WSIZE;
-		} 
-	}
-	else {
-		p = heap_listp + 15 * WSIZE;
-	}
-	
-	return p;
+	return heap_listp +  MIN(NUM_SEG - 1, FAST_LOG2(size - 2*DSIZE + 7)) * WSIZE;
 }
 
 /*
@@ -184,13 +146,11 @@ get_segregation(size_t size)
  */
 void seg_block(void *bp)
 {
+	if (check_verbose)
+		printf("seg_block\n");
+
 	uintptr_t seg_ptr = (uintptr_t) get_segregation(GET_SIZE(HDRP(bp)));
-	/*if (GET(seg_ptr) != 0) {
-		PUT_PREV_FREE(FTRP(GET(seg_ptr)), (uintptr_t) bp);
-	}
-	PUT_NEXT_FREE(HDRP(bp), GET(seg_ptr));
-	PUT(seg_ptr, (uintptr_t)bp);
-	PUT_PREV_FREE(FTRP(bp), 0);*/
+
 	if (GET(seg_ptr) == 0) {
 		PUT_NEXT_FREE(HDRP(bp), (uintptr_t) bp);
 		PUT(seg_ptr, (uintptr_t) bp);
@@ -380,7 +340,7 @@ mm_realloc(void *ptr, size_t size)
 		place(ptr, size);
 		return ptr;
 		}*/
-	size = MAX(size, 2*oldsize);
+	size = MAX(size, 4*oldsize/3);
 
 	newptr = mm_malloc(size);
 
@@ -469,7 +429,7 @@ static void *
 extend_heap(size_t words) 
 {
 	if (check_verbose)
-		printf("extend_heap(%d)\n", (int) words);
+		printf("extend_heap(%d bytes)\n", (int) (words * WSIZE));
 	size_t size;
 	void *bp;
 
@@ -484,8 +444,7 @@ extend_heap(size_t words)
 	PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* New epilogue header */
 	PUT(HDRP(NEXT_BLKP(bp)) + WSIZE, PACK(0, 1)); /* New epilogue header */
 
-	/* Coalesce if the previous block was free. */
-	bp = (coalesce(bp));
+	seg_block(bp);
 
         if (should_check)
 		checkheap(check_verbose);
@@ -506,27 +465,21 @@ find_fit(size_t asize)
 {
 	if (check_verbose)
 		printf("find_fit\n");
-	// If there is one element in the list, check if it fits
-	void *firstcheck = (void*) GET(get_segregation(asize));
-	if (firstcheck != NULL && asize <= GET_SIZE(HDRP(firstcheck))) {
-		return (firstcheck);
+	// If there is an element in the segregation, check if it fits
+	void *seg = get_segregation(asize);
+	if (GET(seg) != 0 && asize <= GET_SIZE(HDRP(GET(seg)))) {
+		return (void*) GET(seg);
 	}
 	// otherwise start at the NEXT segregation to improve perf
-	void *seg = get_segregation(asize);
 	if (seg < (void*)((NUM_SEG - 1) * WSIZE + heap_listp)) {
 		seg += WSIZE;
 	}
 	void *last_seg = NUM_SEG * WSIZE + heap_listp; 
 	for (; seg < last_seg; seg += WSIZE) {
-		void *bp;
-		/* Search for the first fit. */
-		void *startBp = NULL;
-		for (bp = (void*) GET(seg); bp != startBp; bp = (void*) GET_NEXT_FREE(HDRP(bp))) {
-			if (asize <= GET_SIZE(HDRP(bp))) {
-				PUT(seg, (uintptr_t) GET_NEXT_FREE(HDRP(bp)));
-				return (bp);
-			}
-			startBp = (void*) GET(seg);
+		// We don't have to iterate because these are 
+		// all in a bigger size class
+		if (GET(seg) != 0) {
+			return (void*) GET(seg);
 		}
 	}
 
@@ -555,7 +508,8 @@ place(void *bp, size_t asize)
 
         remove_freelist(bp);
 
-	if ((csize - asize) >= (2 * DSIZE + WSIZE) + 128) { 
+	// If we can seperate this into another free block that's not tiny
+	if ((csize - asize) >= (2 * DSIZE + WSIZE)) { 
 	//if (csize > asize*2 && (csize - asize) >= (2 * DSIZE + WSIZE)) {
 		PUT(HDRP(bp), PACK(asize, 1));
 		PUT(HDRLINK(bp), 0);
@@ -607,6 +561,10 @@ checkblock(void *bp)
 			was_error = true;
 		}
 
+	} 
+	if (GET_SIZE(HDRP(bp)) >= 50000) {
+		printf("This guy thicc\n");
+		was_error = true;
 	}
 	if ((uintptr_t)bp % WSIZE) {
 		printf("Error: %p is not word aligned\n", bp);
