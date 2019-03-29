@@ -5,9 +5,144 @@ COMP 321 Project 5: Malloc
 
 DESIGN DESCRIPTION
 
-<Insert an English description of your submission's design.  Do not submit
-pseudo-code.  Describe any design decisions that you made, such as the data
-structures and algorithms that you used.> 
+General design description: Our dynamic memory allocator utilized segregated 
+free lists with alignment of 8 bytes. Free blocks of specified sizes are stored
+together in a circularly doubly linked list. A pointer to the linked list of 
+each size group is stored in the prologue. The size groups that maximized our 
+allocator performance were, in terms of number of 8 byte alignments: 1, 2-3, 
+4-7, 8-15, 16-31, etc. A total of 16 size groups were used. When allocating 
+memory, if the size need to be allocated did not fall under the largest size 
+group, then a free block in the next largest size group (or larger if no free 
+blocks are in that size group) is allocated. The header and footer of each 
+block consists of two parts: the block’s size/allocation and the pointer to 
+the next free or previous block of the same size group. 
+
+Mm_init description: mm_init begins by calling mem_sbrk to expand the heap so 
+it is large enough for the prologue’s footer and header, as well as the 
+epilogue’s header. The prologue’s size and the fact that the block is allocated
+is placed in both the prologue’s header and footer. Between the prologue’s 
+header and footer, the pointers to the size group’s linked list will be stored.
+Since no linked lists exist when mm_init is called, each of these pointers in 
+given a value of null. The epilogue header is unchanged from before and is 
+placed after the prologue’s footer. The global variable indicating the location 
+of the first block is incremented so it is directly after the prologue’s header.
+Finally, the heap is extended by CHUNKSIZE by calling extend_heap.
+
+Mm_malloc description: mm_malloc begins by rounding up the inputted size so it 
+is a multiple of 8 bytes. Find_fit is called with the rounded up size. If 
+find_fit successfully finds a free block large enough, then place is called to 
+allocated that block of memory. The function then returns the address to the 
+allocated block. If find_fit is unable to find a free block big enough, then 
+extend_heap is called with the maximum of the rounded up size and CHUNKSIZE. 
+Place is called to allocate the block of memory at the beginning of the 
+extended heap. The function then returns the address to the allocated block.
+
+Mm_free description: mm_free changes the header and the footer of the block to 
+indicate that the block is now free. Coalesce in then called to merge the now 
+free block with its potentially free surrounding blocks. The function 
+terminates thereafter.
+
+Mm_realloc description: If mm_realloc is called with zero size, then the 
+function frees the block at the pointer and returns a null pointer. If 
+mm_realloc is called with a size that is less than the size of the block at the
+inputted pointer minus its header and footer, then the function returns the 
+inputted pointer. Otherwise, mm_realloc is tasked with reallocating more memory.
+Mm_realloc first attempts to do this by checking if either or both of its 
+previous block or next block are free and whether the combined sizes of the 
+current block and the surrounding free blocks are larger than or equal to the 
+inputted size plus the size for a header and footer. If this is the case than 
+the blocks are merged by adjusting the block’s header and footer and by 
+updating the blocks size. The surrounding blocks that are merged are removed 
+from the linked lists by calling remove_free. Memmove is called to move the 
+memory stored at the inputted location to the start of the new block. If the 
+surrounding blocks cannot be merged to satisfy the inputted size, then it is 
+necessary to find a new block of memory satisfying the inputted size. In the 
+case where repetitive calls the mm_realloc are made where the inputted size is 
+increased by small margins every time, it is more efficient to reallocate more 
+than the necessary amount so the success calls to mm_realloc will only return 
+the given pointer. Therefore, mm_malloc is called with the maximum of the 
+inputted size and 4/3 of the old block’s size (4/3 was determined to be the 
+most efficient factor here). If mm_malloc fails, then the function returns a 
+null pointer. Otherwise, the data is copied to the new block returned by 
+mm_malloc by calling memcpy. Mm_free is called on the old pointer to designate 
+the old block as a free block. Finally, the function returns the address of 
+the new block.
+
+Coalesce description: This function first determines whether the previous and 
+next block around the inputted address are allocated. If both the previous and 
+the next block are allocated, then segblock is called with the inputted 
+address to add that block to the linked list. If either both or one of the 
+surrounding block is free, then the free blocks are removed from the linked 
+lists by calling remove_freelist. The size of the new coalesced block is 
+calculated by adding the sizes of the free surrounding blocks with the size of 
+the inputted block. This size is placed in the header and footer of the new 
+block. The address of the new coalesced is computed so that it is directly 
+after the header of the new block. Segblock is called with this address to add 
+it to the linked lists. Finally, the function returns the address of the new 
+block. 
+
+Extend_heap description: This functions seeks to extend the heap by the 
+inputted number of words. First this functions rounds up the number of words 
+to an even number to maintain alignment and multiplies this by WSIZE to get 
+the number of bytes the heap will be extended by. Mem_sbrk is called with this 
+number of bytes to extend the heap and the address returned by mem_sbrk is 
+saved to a local variable. A header and footer is placed at the beginning and 
+end of the extended block, respectively, and the size of the extended block is 
+placed inside the header and footer. Additionally, the block is designated as 
+free in the header and footer. The epilogue is shifted so that it is after the 
+newly extended block. Segblock is called with the address of the new block to 
+add it to its linked lists. It was found through testing the performance of 
+our memory allocator went down when the extended block was coalesced. 
+Therefore, no coalescing is performed in this function. Finally, the function 
+returns the address of the extended block.
+
+Find_fit description: This function seeks to find a location to place a block 
+of the inputted size. First, the function finds the size group that the 
+inputted size would fall under. If that size group is not the last size group, 
+then find_fit begins by seeing if the first block in the size group’s linked 
+list is large enough for the inputted size. If it is, then the address of this 
+block is returned. Otherwise, the linked list of the next larger size group is 
+searched through. If a block is found, then the address of the block is 
+returned. If there are no blocks in that linked list, then the linked list of 
+the next larger size group is searched. This process is repeated until a block 
+in found. The address of the found block is returned. If no blocks are found 
+then null is returned. If the size group of the inputted size is the last size 
+group, then the linked list of that size group is searched through. If no 
+blocks in that linked list are large enough or the list is empty, then null is 
+returned. 
+
+Place description: This functions begins by removing the inputted block from 
+its respective linked list because it is soon to be allocated. If the 
+difference between the size of the inputted block and the inputted size is 
+large enough to fit another block, then a block of the inputted size is 
+allocated at the inputted address. The next block is designated as free with a 
+size equal to the difference between the size of the inputted block and the 
+inputted size and is added to its respective linked list by calling seg_block. 
+Otherwise, the entire block at the inputted address is allocated. The function 
+terminates thereafter.
+
+Remove_freelist description: This function first calls get_segregation to find 
+the linked list that the inputted block will fall under. The block is then 
+removed from the linked list. In the case that the pointer in the prologue 
+points to the inputted block, then the pointer in the prologue is set to the 
+address of the next block in the linked list. 
+
+Get_segregation description: This function returns a pointer to the linked 
+list of the size group that the inputted size will fall under. First, the 
+function finds the size group by taking the floor of log base 2 of the 
+inputted size. If that is greater than or equal to one minus the number of 
+segregations, then the size falls under the largest size group. Once the size 
+group is found, the pointer, located in the prologue, to the size group’s 
+linked list is returned. 
+
+Seg_block description: This functions seeks to add the inputted block to its 
+respective linked list. Its linked list is first found by calling 
+get_segregation. If get_segregation returns a null pointer, then a linked list 
+is created with the inputted block and the pointer in the prologue is set to 
+point to this block. Otherwise, the inputted block is added to the already 
+existing circularly doubly linked list and the pointer in the prologue is set 
+to point to this block.
+
 
 TESTING STRATEGY
 
