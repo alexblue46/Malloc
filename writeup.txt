@@ -1,5 +1,6 @@
 COMP 321 Project 5: Malloc
-<Insert your name(s) and NetID(s).>
+Alex Bluestein, arb19
+Kyran Adams, kpa1
 
 ---(Do not write lines of text that exceed the width of this line.)------------
 
@@ -146,7 +147,19 @@ to point to this block.
 
 TESTING STRATEGY
 
-<Insert a detailed description of your testing strategy: At a minimum,
-you should explain how you tested your code, how you selected your inputs,
-what those inputs were, and why you believe those inputs were sufficient
-to test your code.>
+We tested our code by running our dynamic memory allocator with the test files 
+and calling check_heap throughout the program to check whether the heap was 
+valid. check_heap first checked if the prologue's header and footer were valid.
+The function then proceeded to check whether each block in the heap had a header
+and footer with equal values for the size of the block and for its allocation. 
+It also checked that for each block, its corresponding linked list
+was circular. Next, check_heap made sure that the segregated linked lists were
+valid. check_heap iterated through each linked list. For each linked list 
+check_heap made sure each block in the list was of the correct size and that 
+next block's previous block in the linked list was the initial block. Finally, 
+it was checked that each block in the linked list was free.
+
+Check_heap verified that every component of our heap was was our design 
+intended it to be. Because our heap was always valid through the running of 
+the test files, our group was able to confirm that our dynamic memory allocator
+worked properly and effectively.
